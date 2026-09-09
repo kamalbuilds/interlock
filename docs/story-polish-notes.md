@@ -1,10 +1,39 @@
-# Interlock
+# Interlock story polish notes
 
-## Elevator pitch
+Scored 2026-09-10. Grafana Cloud MCP must be load-bearing. No em dashes.
 
-> Interlock measures a film archive against a delivery spec with ffmpeg, files the breach in Grafana Cloud, repairs the master, and closes its own alert only on the second measurement.
+## Scores (1-10)
 
-182 characters.
+| Axis | Score | Note |
+|---|---|---|
+| Uniqueness | 9 | Film loudness as the series; alert closed only on second measurement. Opposite of dashboard-only render-farm SRE. |
+| Judge-clarity | 8 | Shape block: Sam, SRE-dashboard incumbents, mcp-grafana only path, -23.1 LUFS landed, stated windows. |
+| Partner-load-bearing proof | 9 | Header now "Grafana Cloud MCP is load-bearing, not a sidecar" plus five write classes and Loki state-history readback. |
+| Demo-hook | 8 | Vicki -26.1 one-command; alert Alerting→Normal in Grafana's own history; live Cloud Run run. |
+
+**Composite ~8.5.**
+
+## Top 5 concrete edits (weak lines quoted)
+
+1. **INSPIRATION HAD NO NAMED USER OR PARTNER HOOK (applied):** Was: "A restoration house delivers a title..." Now opens with Sam + mcp-grafana remove-and-nothing-works + -23.1 LUFS + window limit.
+2. **GRAFANA HEADER WAS SOFT (applied):** Was: "**Grafana, through the partner's own MCP server.**" Now: "**Grafana Cloud MCP is load-bearing, not a sidecar.**" plus explicit fail-if-dashboard-only sentence.
+3. **KEEP:** Two-gate close (landed arithmetic + review can only withhold).
+4. **KEEP:** Absence-as-success true-peak lesson.
+5. **BLOCKER FOR SUBMIT:** SUBMISSIONS.md flags captcha / submit state; story polish does not create the Devpost project.
+
+## Edits applied this pass
+
+2 surgical edits in `projects/interlock/STORY.md`.
+
+## Residual risks
+
+- IRM incident path unavailable on this stack (disclosed).
+- Series on Infinity panels, not Grafana Cloud Prometheus metrics write (disclosed).
+
+## Devpost paste
+
+```markdown
+**Elevator pitch:** Interlock measures a film archive against a delivery spec with ffmpeg, files the breach in Grafana Cloud, repairs the master, and closes its own alert only on the second measurement.
 
 ## Inspiration
 
@@ -328,11 +357,4 @@ Policy token with `metrics:write` is in place, so a title's loudness can be quer
 alongside everything else in the stack. And the second failure class: The Memphis Belle
 is over the true peak ceiling, which no gain change fixes, and a limiter pass with its
 own before-and-after measurement is the same loop applied to a different defect.
-
-## Links
-
-- Live: https://interlock-yfaenbgx7q-uc.a.run.app
-- Source: https://github.com/kamalbuilds/interlock (Apache-2.0)
-- Demo video: https://vimeo.com/1225375724
-- Reproduce any figure: the ffmpeg command sits beside it, on the page and in `README.md`
-- Break every check and watch it go red: `bash scripts/prove.sh`, transcript in `PROOF.md`
+```

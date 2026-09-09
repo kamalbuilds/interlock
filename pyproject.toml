@@ -1,0 +1,30 @@
+[project]
+name = "interlock"
+version = "1.0.0"
+description = "A film archive as a fleet under SLO: measured with ffmpeg, filed into Grafana Cloud through mcp-grafana, repaired, and closed on the re-measurement."
+requires-python = ">=3.13"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "google-adk==2.8.0",
+    "google-genai>=1.0.0",
+    # Upper bound on purpose. google-adk 2.8.0 declares mcp>=1.24,<2, and its
+    # McpToolset imports mcp.shared.session, which mcp 2.x removed. Resolving to 2.x
+    # installs cleanly and then the survey node cannot be built at all, so the range is
+    # pinned to the one ADK was tested against rather than left to float.
+    "mcp>=1.24,<2",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["interlock"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

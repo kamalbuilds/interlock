@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interlock: delivery record for the archive under SLO</title>
+<meta name="description" content="Interlock measures a film archive against a delivery spec with ffmpeg, files the breach into Grafana Cloud through the official mcp-grafana server, repairs the master, and closes its own alert on the re-measurement.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0c0b0a;
+  --ink-2:#121110;
+  --rule:#26241f;
+  --rule-soft:#1b1917;
+  --fg:#eae5db;
+  --fg-2:#a8a196;
+  --fg-3:#6f6a61;
+  --amber:#e0a33c;
+  --amber-dim:#7a5a20;
+  --red:#d6543f;
+  --green:#5f9c5a;
+  --sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --r:4px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--ink);color:var(--fg);
+  font-family:var(--sans);font-size:15px;line-height:1.55;
+  font-variant-numeric:tabular-nums;
+}
+a{color:var(--amber);text-decoration:none;border-bottom:1px solid var(--amber-dim)}
+a:hover{border-bottom-color:var(--amber)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.mono{font-family:var(--mono)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dim{color:var(--fg-2)}
+.faint{color:var(--fg-3)}
+
+/* film leader strip: the one ornament, and it is the product's own noun */
+.leader{height:10px;background:
+  repeating-linear-gradient(90deg,var(--amber-dim) 0 2px,transparent 2px 10px),
+  linear-gradient(90deg,#1a1714,#0c0b0a);
+  border-bottom:1px solid var(--rule)}
+
+header{padding:34px 0 26px;border-bottom:1px solid var(--rule)}
+.brandrow{display:flex;flex-wrap:wrap;align-items:baseline;gap:16px}
+h1{margin:0;font-size:22px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
+.claim{margin:14px 0 0;font-size:21px;font-weight:400;line-height:1.4;max-width:62ch;color:var(--fg)}
+.claim b{font-weight:600;color:#fff}
+.stamp{margin-top:18px;display:flex;flex-wrap:wrap;gap:6px 26px;font-family:var(--mono);font-size:12px;color:var(--fg-3)}
+.stamp span b{color:var(--fg-2);font-weight:500}
+
+section{padding:38px 0;border-bottom:1px solid var(--rule-soft)}
+h2{margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--amber)}
+.lede{margin:0 0 22px;max-width:78ch;color:var(--fg-2);font-size:14px}
+
+/* the trace: the hero, and it is the measurement itself */
+.trace{position:relative;border:1px solid var(--rule);border-radius:var(--r);background:var(--ink-2);overflow:hidden}
+.trace svg{display:block;width:100%;height:auto}
+.tracehead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule-soft)}
+.tracehead .t{font-size:16px;font-weight:600}
+.tracehead .m{font-family:var(--mono);font-size:12px;color:var(--fg-2)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;padding:12px 16px;font-family:var(--mono);font-size:11.5px;color:var(--fg-3);border-top:1px solid var(--rule-soft)}
+.swatch{display:inline-block;width:16px;height:3px;vertical-align:middle;margin-right:7px}
+
+/* measurement pairs */
+.pairs{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:1px;background:var(--rule-soft);border:1px solid var(--rule);border-radius:var(--r);margin-top:20px}
+.pair{background:var(--ink-2);padding:14px 16px}
+.pair .k{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.pair .v{font-family:var(--mono);font-size:22px;font-weight:500;margin-top:5px}
+.pair .n{font-size:12px;color:var(--fg-2);margin-top:3px}
+.v.bad{color:var(--red)}.v.ok{color:var(--green)}.v.warn{color:var(--amber)}
+
+/* A dense table is right on a desk and wrong on a phone, so it scrolls sideways
+   rather than being squeezed into unreadable columns or hidden behind a toggle. */
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;min-width:720px;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);font-weight:500;padding:0 12px 9px 0;border-bottom:1px solid var(--rule)}
+td{padding:10px 12px 10px 0;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+tr:hover td{background:rgba(224,163,60,.035)}
+td.r,th.r{text-align:right;padding-right:0}
+.tag{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:2px;border:1px solid currentColor;white-space:nowrap}
+.tag.clear{color:var(--green)}.tag.minor{color:var(--fg-2)}.tag.major{color:var(--amber)}.tag.critical{color:var(--red)}
+
+/* the executed rail */
+.rail{border-left:1px solid var(--rule);margin-left:5px}
+.step{position:relative;padding:0 0 22px 26px}
+.step:before{content:"";position:absolute;left:-5px;top:6px;width:9px;height:9px;border-radius:50%;background:var(--ink);border:1px solid var(--amber)}
+.step.no:before{border-color:var(--red)}
+.step .tool{font-family:var(--mono);font-size:13px;color:var(--amber)}
+.step.no .tool{color:var(--red)}
+.step .what{margin-top:3px;font-size:14px}
+.step .ev{margin-top:4px;font-family:var(--mono);font-size:11.5px;color:var(--fg-3);word-break:break-word}
+
+.probe{display:grid;gap:1px;background:var(--rule-soft);border:1px solid var(--rule);border-radius:var(--r)}
+.cap{background:var(--ink-2);padding:13px 16px;display:grid;grid-template-columns:1fr;gap:3px}
+.cap .top{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px}
+.cap .name{font-family:var(--mono);font-size:13px}
+.cap .verdict{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.cap.yes .verdict{color:var(--green)}
+.cap.no .verdict{color:var(--red)}
+.cap .detail{font-size:13px;color:var(--fg-2)}
+.cap .proof{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+pre.raw{margin:8px 0 0;padding:11px 13px;background:#0a0908;border:1px solid var(--rule);border-left:2px solid var(--red);border-radius:2px;font-family:var(--mono);font-size:11.5px;color:#c9b9a6;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+pre.cmd{margin:10px 0 0;padding:11px 13px;background:#0a0908;border:1px solid var(--rule);border-left:2px solid var(--amber-dim);border-radius:2px;font-family:var(--mono);font-size:11.5px;color:#c9b9a6;white-space:pre-wrap;word-break:break-all;overflow-x:auto}
+
+.split{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.gate{border:1px solid var(--rule);border-radius:var(--r);background:var(--ink-2);padding:16px}
+.gate h3{margin:0 0 4px;font-size:14px;font-weight:600}
+.gate .st{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.gate.pass .st{color:var(--green)}.gate.fail .st{color:var(--red)}
+.gate p{margin:8px 0 0;font-size:13px;color:var(--fg-2)}
+
+.limits li{margin-bottom:14px;color:var(--fg-2);font-size:14px;max-width:88ch}
+.limits li b{color:var(--fg);font-weight:600}
+
+.act{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:13px;padding:9px 15px;border-radius:2px;border:1px solid var(--amber-dim);background:transparent;color:var(--amber);cursor:pointer}
+.act:hover{background:rgba(224,163,60,.08);border-color:var(--amber)}
+.act[disabled]{opacity:.45;cursor:default}
+#runstate{margin-top:12px;font-family:var(--mono);font-size:12px;color:var(--fg-2)}
+
+footer{padding:34px 0 60px;font-family:var(--mono);font-size:12px;color:var(--fg-3)}
+.empty{padding:60px 0}
+.empty h2{margin-bottom:14px}
+@media (max-width:820px){
+  .split{grid-template-columns:1fr}
+  .wrap{padding:0 18px}
+  .claim{font-size:18px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="leader" aria-hidden="true"></div>
+<div id="app" class="wrap"></div>
+
+<script id="run-data" type="application/json">null</script>
+<script>
+const RUN = /*__RUN_JSON__*/null || JSON.parse(document.getElementById('run-data').textContent || 'null');
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const n1 = (v) => (v === null || v === undefined) ? 'n/a' : Number(v).toFixed(1);
+const pc = (v) => (v === null || v === undefined) ? 'n/a' : (Number(v) * 100).toFixed(2) + '%';
+const app = document.getElementById('app');
+
+function tc(sec){
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${s.toFixed(1).padStart(4,'0')}`;
+}
+
+/* The trace. Real 100 ms samples, the corridor as a band, breaches as regions at
+   their own timecodes. Drawn here rather than fetched as an image so the numbers on
+   this page and the numbers in the run record cannot drift apart. */
+function trace(series, meta){
+  const W = 1120, H = 310, L = 52, R = 14, T = 12, B = 40;
+  const rows = series.before;
+  if (!rows || !rows.length) return '';
+  const tMax = rows[rows.length-1][0] || 1;
+  const yMin = -60, yMax = -4;
+  const x = t => L + (t / tMax) * (W - L - R);
+  const y = v => T + ((yMax - Math.max(Math.min(v, yMax), yMin)) / (yMax - yMin)) * (H - T - B);
+  const [floor, ceil] = series.corridor;
+
+  const path = (idx) => rows.map((r,i) => `${i?'L':'M'}${x(r[0]).toFixed(1)} ${y(r[idx]).toFixed(1)}`).join(' ');
+  const afterPath = series.after && series.after.length
+    ? series.after.map((r,i) => `${i?'L':'M'}${x(r[0]).toFixed(1)} ${y(r[1]).toFixed(1)}`).join(' ')
+    : '';
+
+  const sorted = (series.breaches || []).slice().sort((a,b) => a.start - b.start);
+  const bands = sorted.map(b => {
+    const x0 = x(b.start), x1 = Math.max(x(b.end), x(b.start) + 1.2);
+    const c = b.direction === 'loud' ? '214,84,63' : '224,163,60';
+    return `<rect x="${x0.toFixed(1)}" y="${T}" width="${(x1-x0).toFixed(1)}" height="${H-T-B}"
+      fill="rgba(${c},.11)"/>
+      <line x1="${x0.toFixed(1)}" y1="${T}" x2="${x0.toFixed(1)}" y2="${H-B}" stroke="rgba(${c},.55)" stroke-width="1"/>
+      <line x1="${x1.toFixed(1)}" y1="${T}" x2="${x1.toFixed(1)}" y2="${H-B}" stroke="rgba(${c},.55)" stroke-width="1"/>`;
+  }).join('');
+
+  // Timecode labels are dropped rather than overprinted. A collided pair of stamps is
+  // unreadable, and an unreadable timecode is worse than no timecode on a page whose
+  // whole promise is that an operator can type the number into an NLE.
+  let lastLabel = -999;
+  const marks = sorted.map(b => {
+    const px = x(b.start);
+    if (px - lastLabel < 42) return '';
+    lastLabel = px;
+    return `<text x="${(px+3).toFixed(1)}" y="${H-B+13}" font-family="IBM Plex Mono, monospace"
+      font-size="9.5" fill="#8d867c">${esc(b.timecode.slice(3,8))}</text>`;
+  }).join('');
+
+  const ticks = [-10,-20,-23,-30,-40,-50].map(v =>
+    `<g><line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}"
+       stroke="${v===-23?'#e0a33c':'#1b1917'}" stroke-width="${v===-23?1:1}"
+       stroke-dasharray="${v===-23?'4 3':''}"/>
+     <text x="${L-9}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" font-family="IBM Plex Mono, monospace"
+       font-size="10" fill="${v===-23?'#e0a33c':'#6f6a61'}">${v}</text></g>`).join('');
+
+  return `
+  <div class="trace">
+    <div class="tracehead">
+      <div>
+        <div class="t">${esc(meta.title)} <span class="faint">(${esc(meta.year||'')})</span></div>
+        <div class="m">short-term loudness, one sample per 100 ms, first ${esc(meta.window_seconds)} s of the archive.org master</div>
+      </div>
+      <div class="m" style="text-align:right">
+        integrated <b style="color:${Math.abs(meta.integrated_delta_lu) > 1 ? 'var(--red)' : 'var(--green)'}">${n1(meta.integrated_lufs)} LUFS</b><br>
+        ${meta.integrated_delta_lu >= 0 ? '+' : ''}${n1(meta.integrated_delta_lu)} LU from the -23 target
+      </div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" role="img"
+         aria-label="Measured short-term loudness of ${esc(meta.title)} against the delivery corridor">
+      ${bands}
+      <rect x="${L}" y="${y(ceil).toFixed(1)}" width="${W-L-R}" height="${(y(floor)-y(ceil)).toFixed(1)}"
+            fill="rgba(95,156,90,.09)"/>
+      ${ticks}
+      <line x1="${L}" y1="${y(ceil).toFixed(1)}" x2="${W-R}" y2="${y(ceil).toFixed(1)}" stroke="#3a4d38" stroke-width="1"/>
+      <line x1="${L}" y1="${y(floor).toFixed(1)}" x2="${W-R}" y2="${y(floor).toFixed(1)}" stroke="#3a4d38" stroke-width="1"/>
+      <path d="${path(2)}" fill="none" stroke="#3f4a57" stroke-width="0.8" opacity=".9"/>
+      <path d="${path(1)}" fill="none" stroke="#eae5db" stroke-width="1.3"/>
+      ${afterPath ? `<path d="${afterPath}" fill="none" stroke="#5f9c5a" stroke-width="1.3" opacity=".95"/>` : ''}
+      ${marks}
+      <text x="${L}" y="${H-B+24}" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#6f6a61">00:00 media timecode</text>
+    </svg>
+    <div class="legend">
+      <span><i class="swatch" style="background:#eae5db"></i>short-term, as delivered</span>
+      <span><i class="swatch" style="background:#3f4a57"></i>momentary, 400 ms window</span>
+      ${afterPath ? '<span><i class="swatch" style="background:#5f9c5a"></i>short-term, after the repair</span>' : ''}
+      <span><i class="swatch" style="background:rgba(95,156,90,.35)"></i>delivery corridor, ${floor} to ${ceil} LUFS</span>
+      <span><i class="swatch" style="background:rgba(224,163,60,.5)"></i>out of corridor, timecode below</span>
+    </div>
+  </div>`;
+}
+
+function renderEmpty(){
+  app.innerHTML = `
+  <header>
+    <div class="brandrow"><h1>Interlock</h1><span class="mono faint">delivery SLO for a film archive</span></div>
+    <p class="claim">No title has been measured on this instance yet. Interlock does not draw a chart it has not measured, so there is nothing here until ffmpeg has run.</p>
+  </header>
+  <section class="empty">
+    <h2>Produce a record</h2>
+    <p class="lede">A run downloads eight public-domain features from archive.org, measures each one with ffmpeg, files the worst breach into Grafana Cloud through the official mcp-grafana server, repairs a master, and closes its own alert on the re-measurement.</p>
+    <pre class="cmd">python -m interlock.catalog          # fetch the fleet from archive.org
+python -m interlock                  # measure, file, repair, close</pre>
+    <div style="margin-top:22px"><button class="act" id="go">Run it against live Grafana now</button></div>
+    <div id="runstate"></div>
+  </section>
+  <footer><div class="wrap" style="padding:0">Interlock. Apache-2.0. Every figure on this page comes from ffmpeg on the machine that served it.</div></footer>`;
+  wireRun();
+}
+
+function render(){
+  if (!RUN || RUN.empty) return renderEmpty();
+
+  const caps = RUN.capabilities || {};
+  const titles = RUN.titles || [];
+  const cat = {}; (RUN.catalog || []).forEach(c => cat[c.title_id] = c);
+  const filings = RUN.filings || {};
+  const triage = RUN.triage || {};
+  const outcome = RUN.outcome || {};
+  const repair = RUN.repair || {};
+  const review = RUN.review || {};
+  const asserts = RUN.assertions || [];
+  const calls = RUN.mcp_calls || [];
+  const series = RUN.series || {};
+
+  // The hero is the escalated title, because that is the one carrying visible damage.
+  // The repaired title gets its own trace further down, where the before and after
+  // lines can be read against each other.
+  const heroId = (triage.escalate && series[triage.escalate]) ? triage.escalate : Object.keys(series)[0];
+  const hero = titles.find(t => t.title_id === heroId) || titles[0];
+  const heroCat = cat[heroId] || {};
+  const repairedSeries = repair.title_id ? series[repair.title_id] : null;
+  const repairedTitle = repair.title_id ? titles.find(t => t.title_id === repair.title_id) : null;
+
+  const clean = titles.filter(t => t.in_spec).length;
+  const writes = calls.filter(c => c.ok && /create_|update_|alerting_manage|provisioning/.test(c.tool)).length;
+
+  const railRows = [];
+  Object.values(filings).forEach(f => {
+    railRows.push({
+      ok: true,
+      tool: 'update_dashboard',
+      what: `Wrote the delivery board for ${cat[f.title_id]?.title || f.title_id}, with the measured 100 ms series on a real panel.`,
+      ev: f.dashboard_url,
+      link: f.dashboard_url,
+    });
+    if (f.annotations) railRows.push({
+      ok: true,
+      tool: 'create_annotation',
+      what: `Filed ${f.annotations} out-of-corridor spans as annotation regions, each placed at its own offending timecode.`,
+      ev: `tag ${f.annotation_tag}, read back by that tag to prove the write landed`,
+    });
+    if (f.rule_uid) railRows.push({
+      ok: true,
+      tool: 'alerting_manage_rules',
+      what: `Opened a Grafana alert rule on the measured distance from the -23 LUFS target.`,
+      ev: `rule ${f.rule_uid}, then polled the ruler until Grafana itself evaluated it to firing`,
+    });
+    if (f.incident_id) railRows.push({
+      ok: true, tool: 'create_incident',
+      what: `Opened a Grafana IRM incident.`, ev: `incident ${f.incident_id}`,
+    });
+    (f.notes || []).forEach(note => railRows.push({ ok: false, tool: 'escalation', what: note, ev: '' }));
+  });
+  if (outcome.closed) railRows.push({
+    ok: true, tool: 'alerting_manage_rules update',
+    what: `Closed the record on ${cat[outcome.title_id]?.title || outcome.title_id} by writing the re-measured figure into the rule, then waited for Grafana to clear it.`,
+    ev: `${n1(outcome.integrated_lufs_before)} LUFS before, ${n1(outcome.integrated_lufs_after)} LUFS after`,
+  });
+  else if (outcome.title_id) railRows.push({
+    ok: false, tool: 'close gate',
+    what: `Left the record open on ${cat[outcome.title_id]?.title || outcome.title_id}.`,
+    ev: outcome.gate || '',
+  });
+
+  app.innerHTML = `
+  <header>
+    <div class="brandrow">
+      <h1>Interlock</h1>
+      <span class="mono faint">a film archive as a fleet under SLO</span>
+    </div>
+    <p class="claim">The line on the chart below is <b>the film's own loudness</b>, measured by ffmpeg every 100 milliseconds. Not the CPU of a render node. Interlock filed its breach into Grafana Cloud, changed the master, measured the master it changed, and closed its own alert on the second number.</p>
+    <div class="stamp">
+      <span>grafana <b>${esc(caps.grafana_version || 'unknown')}</b></span>
+      <span>service account <b>${esc(caps.login || 'unknown')}</b></span>
+      <span>gemini <b>${esc(RUN.gemini_model || 'unset')}</b></span>
+      <span>mcp tools offered <b>${esc(RUN.mcp_tools_offered)}</b></span>
+      <span>mcp calls this run <b>${calls.length}</b>, <b>${writes}</b> of them writes</span>
+      <span>run <b>${esc((RUN.generated_at || '').replace('T',' ').slice(0,19))}Z</b></span>
+    </div>
+  </header>
+
+  <section>
+    <h2>The artefact</h2>
+    <p class="lede">${esc(heroCat.note || '')} Measured over the first ${esc(hero?.window_seconds)} seconds of <a href="${esc(heroCat.archive_url||'#')}">the archive.org master</a>, which anyone can download and re-measure with the command below.</p>
+    ${series[heroId] ? trace(series[heroId], {...hero, year: heroCat.year}) : ''}
+    <div class="pairs">
+      <div class="pair"><div class="k">integrated loudness</div>
+        <div class="v ${Math.abs(hero.integrated_delta_lu) > 1 ? 'bad':'ok'}">${n1(hero.integrated_lufs)}</div>
+        <div class="n">LUFS against -23.0, EBU R128</div></div>
+      <div class="pair"><div class="k">true peak</div>
+        <div class="v ${(hero.true_peak_dbfs ?? -99) > -1 ? 'bad':'ok'}">${n1(hero.true_peak_dbfs)}</div>
+        <div class="n">dBTP against a -1.0 ceiling</div></div>
+      <div class="pair"><div class="k">availability</div>
+        <div class="v ${hero.availability >= 0.99 ? 'ok':'warn'}">${pc(hero.availability)}</div>
+        <div class="n">of gated programme time in corridor</div></div>
+      <div class="pair"><div class="k">error budget</div>
+        <div class="v ${hero.burn_ratio > 1 ? 'bad':'ok'}">${n1(hero.burn_ratio)}x</div>
+        <div class="n">${n1(hero.burned_seconds)} s burned of ${n1(hero.budget_seconds)} s allowed</div></div>
+      <div class="pair"><div class="k">loudness range</div>
+        <div class="v">${n1(hero.lra_lu)}</div>
+        <div class="n">LU, EBU Tech 3342</div></div>
+    </div>
+    <pre class="cmd">${esc(hero.command)}</pre>
+  </section>
+
+  <section>
+    <h2>Which nodes ran, and what each one did</h2>
+    <p class="lede">A graph diagram is a claim. Every node writes one line here as its last act, so a node the branch skipped is visibly absent rather than assumed present. Three of the nine are Gemini and all three change what executes: the first picks the datasources every write goes to, the fourth picks the title and decides whether the repair node runs at all, and the seventh can withhold closure.</p>
+    <div class="rail">
+      ${(RUN.node_trace||[]).map(t => `
+        <div class="step">
+          <div class="tool">${esc(t.node)}${t.kind === 'llm' ? ' &middot; gemini' : ''}</div>
+          <div class="what">${esc(t.detail)}</div>
+          <div class="ev">${esc(t.mcp_calls_so_far)} mcp calls by this point</div>
+        </div>`).join('')}
+    </div>
+  </section>
+
+  <section>
+    <h2>What the agent discovered about this Grafana stack</h2>
+    <p class="lede">Nothing in this product was pointed at a datasource by somebody who had already seen the stack. The graph's first node is handed the live mcp-grafana session and two tools, and finds out: it called ${esc((caps.survey_tools_called||[]).join(', ') || 'nothing')}, then chose <span class="mono">${esc(caps.infinity_uid || 'none')}</span> to carry the 100 ms loudness series onto a panel. ${esc(caps.survey_reasoning || '')} Every uid it named was read back from the stack before anything was written, and a uid this stack does not have stops the run.</p>
+    ${caps.survey_query ? `<pre class="cmd">${esc(caps.survey_query)}</pre>
+    <p class="lede">${esc(caps.survey_query_result || '')}</p>` : ''}
+    <p class="lede">Then the second node stops asking and starts doing. A tool appearing in mcp-grafana's list of ${esc(RUN.mcp_tools_offered)} proves nothing about whether this stack will run it, so each write below was attempted for real against a scratch folder and a scratch dashboard and read back, with the refusal recorded verbatim where there was one. The escalation path is chosen from what survived that, not from a config flag.</p>
+    <div class="probe">
+      ${(caps.items||[]).map(c => `
+        <div class="cap ${c.available ? 'yes':'no'}">
+          <div class="top"><span class="name">${esc(c.name)}</span>
+            <span class="verdict">${c.available ? 'accepted' : 'refused'}</span></div>
+          <div class="detail">${esc(c.detail)}</div>
+          ${c.proof ? `<div class="proof">proof: ${esc(c.proof)}</div>` : ''}
+        </div>`).join('')}
+    </div>
+    <p class="lede" style="margin-top:20px">Chosen path: <b class="mono" style="color:var(--amber)">${esc(caps.escalation_path)}</b>. ${esc((caps.escalation_reason||'').split(' Refusal:')[0])} The refusal it routed around is printed in full above, exactly as Grafana returned it.</p>
+  </section>
+
+  <section>
+    <h2>What it executed</h2>
+    <p class="lede">Every line is one call to the official <span class="mono">grafana/mcp-grafana</span> server over stdio. Interlock holds no Grafana HTTP client of its own.</p>
+    <div class="rail">
+      ${railRows.map(r => `
+        <div class="step ${r.ok ? '':'no'}">
+          <div class="tool">${esc(r.tool)}</div>
+          <div class="what">${esc(r.what)}</div>
+          ${r.link ? `<div class="ev"><a href="${esc(r.link)}">${esc(r.link)}</a></div>`
+                   : (r.ev ? `<div class="ev">${esc(r.ev)}</div>` : '')}
+        </div>`).join('')}
+    </div>
+    ${RUN.fleet_dashboard_url ? `<p class="lede" style="margin-top:6px">Fleet board: <a href="${esc(RUN.fleet_dashboard_url)}">${esc(RUN.fleet_dashboard_url)}</a></p>` : ''}
+  </section>
+
+  ${repair.title_id ? `
+  <section>
+    <h2>The repair, and the two gates that decide whether it closes anything</h2>
+    <p class="lede">Interlock ran ffmpeg's two-pass loudnorm over ${esc(cat[repair.title_id]?.title || repair.title_id)}, wrote a new file inside its own work directory, and measured that file. Closing the record needs both gates below. The arithmetic gate is a second ffmpeg pass and cannot be talked out of. The reviewer can only ever withhold, never grant, so no confident sentence can resolve an alert over a master that is still out of spec.</p>
+    ${repairedSeries ? trace(repairedSeries, {...repairedTitle, year: cat[repair.title_id]?.year}) : ''}
+    <div class="pairs">
+      <div class="pair"><div class="k">before</div><div class="v bad">${n1(repair.integrated_lufs_before)}</div><div class="n">LUFS, ${repair.delta_lu_before>=0?'+':''}${n1(repair.delta_lu_before)} LU off target</div></div>
+      <div class="pair"><div class="k">after</div><div class="v ${Math.abs(repair.delta_lu_after)<=1?'ok':'bad'}">${n1(repair.integrated_lufs_after)}</div><div class="n">LUFS, ${repair.delta_lu_after>=0?'+':''}${n1(repair.delta_lu_after)} LU off target</div></div>
+      <div class="pair"><div class="k">availability</div><div class="v">${pc(repair.availability_before)} to ${pc(repair.availability_after)}</div><div class="n">gated programme time in corridor</div></div>
+      <div class="pair"><div class="k">true peak</div><div class="v">${n1(repair.true_peak_before)} to ${n1(repair.true_peak_after)}</div><div class="n">dBTP, ceiling -1.0</div></div>
+    </div>
+    <div class="split" style="margin-top:22px">
+      <div class="gate ${outcome.landed_by_measurement ? 'pass':'fail'}">
+        <div class="st">${outcome.landed_by_measurement ? 'gate passed' : 'gate failed'}</div>
+        <h3>Measurement</h3>
+        <p>A second ffmpeg pass over the written file put it ${Math.abs(repair.delta_lu_after)<=1?'inside':'outside'} the 1 LU tolerance. This gate is arithmetic. An exit code of zero from a loudnorm pass that moved nothing does not pass it.</p>
+      </div>
+      <div class="gate ${review.approve ? 'pass':'fail'}">
+        <div class="st">${review.approve ? 'approved' : 'withheld'}</div>
+        <h3>Review, by Gemini</h3>
+        <p>${esc(review.reasoning || 'no review recorded')}</p>
+        ${review.residual_work ? `<p class="faint">Residual work for a person: ${esc(review.residual_work)}</p>` : ''}
+      </div>
+    </div>
+    <p class="lede" style="margin-top:20px">Outcome: <b style="color:${outcome.closed?'var(--green)':'var(--red)'}">${outcome.closed ? 'record closed' : 'record left open'}</b>. ${esc(outcome.gate || '')}</p>
+    <pre class="cmd">${esc(repair.apply_command || '')}</pre>
+  </section>` : ''}
+
+  <section>
+    <h2>The fleet</h2>
+    <p class="lede">Eight public-domain features. ${clean} of them pass the delivery spec outright, which matters: an SLO that fails everything is indistinguishable from a broken measurement. Gemini ordered this queue by which title should reach a mix stage first, not by which number looks worst.</p>
+    <div class="scroll"><table>
+      <thead><tr>
+        <th>title</th><th class="r">LUFS</th><th class="r">delta LU</th><th class="r">true peak</th>
+        <th class="r">availability</th><th class="r">budget burn</th><th>verdict</th><th>captions</th>
+      </tr></thead>
+      <tbody>
+      ${(triage.queue || titles.map(t=>t.title_id)).map(id => {
+        const t = titles.find(x => x.title_id === id); if (!t) return '';
+        const c = cat[id] || {};
+        const capf = (t.subtitle_findings || []).filter(f => !f.passed).length;
+        const dl = t.integrated_delta_lu;
+        return `<tr>
+          <td>${esc(c.title || t.title)} <span class="faint">${esc(c.year||'')}</span>
+              ${id === triage.escalate ? '<span class="tag major" style="margin-left:6px">escalated</span>':''}
+              ${id === repair.title_id ? '<span class="tag clear" style="margin-left:6px">repaired</span>':''}
+              <div class="ev faint mono" style="font-size:11px">first ${esc(t.window_seconds)} s${c.archive_url?` &middot; <a href="${esc(c.archive_url)}">archive.org</a>`:''}</div></td>
+          <td class="r num">${n1(t.integrated_lufs)}</td>
+          <td class="r num" style="color:${Math.abs(dl)>1?'var(--red)':'var(--green)'}">${dl>=0?'+':''}${n1(dl)}</td>
+          <td class="r num" style="color:${(t.true_peak_dbfs??-99)>-1?'var(--red)':'inherit'}">${n1(t.true_peak_dbfs)}</td>
+          <td class="r num">${pc(t.availability)}</td>
+          <td class="r num" style="color:${t.burn_ratio>1?'var(--amber)':'var(--green)'}">${t.burn_ratio===null?'over':n1(t.burn_ratio)+'x'}</td>
+          <td><span class="tag ${esc(t.severity)}">${esc(t.severity)}</span></td>
+          <td class="num faint">${c.has_captions ? (capf ? capf+' failing' : 'pass') : 'none published'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>
+    <p class="lede" style="margin-top:18px">${esc(triage.disposition || '')} <b>${esc(triage.operator_instruction || '')}</b></p>
+  </section>
+
+  <section>
+    <h2>Post-conditions, and the query that established each one</h2>
+    <p class="lede">A 200 from a write is an accepted request. Every claim below was read back out of Grafana afterwards, and two of them come from Grafana's own alert state history, which Interlock only reads and cannot write.</p>
+    <div class="scroll"><table>
+      <thead><tr><th style="width:34px"></th><th>claim</th><th>evidence</th><th>query</th></tr></thead>
+      <tbody>
+      ${asserts.map(a => `<tr>
+        <td class="mono" style="color:${a.holds?'var(--green)':'var(--red)'};font-size:11px">${a.holds?'PASS':'FAIL'}</td>
+        <td>${esc(a.claim)}</td>
+        <td class="faint" style="font-size:12.5px">${esc(a.evidence)}</td>
+        <td class="mono faint" style="font-size:11px;word-break:break-all">${esc(a.query)}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>What Interlock cannot do on this stack, stated rather than filmed around</h2>
+    <ul class="limits">
+      <li><b>IRM incident creation is refused here.</b> The plugin is installed and enabled, its REST surface returns a correct validation error for an empty body, and a real create fails inside Grafana's own database. The probe records the refusal verbatim and routes to a Grafana alert rule instead. A one-time admin visit to the IRM app provisions the missing row, after which the same code opens incidents with no change.
+        <pre class="raw">${esc(((caps.items||[]).find(c=>c.name==='incident_open')||{}).detail || '')}</pre></li>
+      <li><b>The measured series is not in Grafana Cloud Prometheus.</b> ${esc(RUN.series_storage || '')} Loki push through the datasource proxy is refused with "non allow-listed POSTs not allowed on proxied loki datasource", and the OTLP gateway answers 401 for a stack service account token. With a Cloud Access Policy token carrying metrics:write in the environment, the same run stores the series in Mimir and this line changes to say so.</li>
+      <li><b>Every figure covers a stated prefix, not a whole feature.</b> Each title is measured over the window printed beside it, because eight features at full length is minutes of ffmpeg per pass. Nothing on this page is presented as covering more than it measured.</li>
+      <li><b>The repair fixes the level, not the damage.</b> A loudnorm pass corrects an offset. Out-of-corridor spans caused by a dead reel, a blown optical track or a reel-change splice survive it, which is exactly why they are filed as annotations at their timecodes for a person rather than closed.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Run it yourself</h2>
+    <p class="lede">This starts a real run against the live Grafana stack and Gemini. It measures the fleet with ffmpeg, writes to Grafana Cloud, and takes about three minutes. There is no simulated mode to fall back to.</p>
+    <button class="act" id="go">Run it against live Grafana now</button>
+    <div id="runstate"></div>
+  </section>
+
+  <footer>
+    Interlock. Apache-2.0. Public-domain masters from archive.org.
+    Measured with ffmpeg, orchestrated with google.adk.workflow, filed through grafana/mcp-grafana.
+    Every number on this page came out of a command printed next to it.
+  </footer>`;
+  wireRun();
+}
+
+function wireRun(){
+  const btn = document.getElementById('go');
+  const out = document.getElementById('runstate');
+  if (!btn) return;
+  let timer = null;
+  const poll = async () => {
+    const r = await fetch('/api/status').then(x => x.json()).catch(() => null);
+    if (!r) return;
+    if (r.running) {
+      out.textContent = `running since ${String(r.started_at).slice(11,19)}Z. ${r.stage}`;
+      return;
+    }
+    clearInterval(timer); timer = null;
+    btn.disabled = false;
+    btn.textContent = 'Run it against live Grafana now';
+    if (r.error) { out.textContent = `the run stopped and said: ${r.error}`; return; }
+    out.textContent = 'run finished. reloading the record.';
+    location.reload();
+  };
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'running';
+    out.textContent = 'starting mcp-grafana and probing the stack';
+    const res = await fetch('/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    if (res.status === 409) { out.textContent = 'a run is already in flight on this instance.'; }
+    timer = setInterval(poll, 3000);
+  });
+}
+
+render();
+</script>
+</body>
+</html>

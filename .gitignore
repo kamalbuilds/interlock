@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/
+work/
+logs/
+.pytest_cache/
+
+# web/run.json is deliberately NOT ignored. It is the record of the last real run:
+# every figure the product surface renders, every MCP call it made, and every
+# post-condition with the query that established it. Committing it is what makes the
+# README's numbers auditable from the repository instead of taken on trust, and it is
+# what puts real evidence on the deployed page's first paint rather than an empty state.
+
+# internal status board, never shipped to judges
+.progress/

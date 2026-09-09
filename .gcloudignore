@@ -1,0 +1,21 @@
+# What Cloud Build must not receive.
+#
+# This file exists rather than being inferred from .gitignore because the two want
+# different things. `web/run.json` is committed on purpose, and it has to reach the
+# image so the deployed page has a real run on first paint. The masters must not: they
+# are 190 MB of public-domain film that the container fetches from archive.org on boot,
+# where a judge can check them against the same source Interlock measured.
+
+.git/
+.gitignore
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.uicraft-read.json
+
+# The fleet, and anything a run produced locally.
+data/
+work/
+logs/

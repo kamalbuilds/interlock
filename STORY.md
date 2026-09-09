@@ -318,5 +318,7 @@ own before-and-after measurement is the same loop applied to a different defect.
 ## Links
 
 - Live: https://interlock-yfaenbgx7q-uc.a.run.app
+- Source: https://github.com/kamalbuilds/interlock (Apache-2.0)
+- Demo video: https://vimeo.com/1225375724
 - Reproduce any figure: the ffmpeg command sits beside it, on the page and in `README.md`
 - Break every check and watch it go red: `bash scripts/prove.sh`, transcript in `PROOF.md`
